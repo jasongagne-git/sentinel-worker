@@ -393,6 +393,29 @@ def _make_handler(service: WorkerService):
             model = data["model"]
             log.info("Loading model: %s", model)
 
+            # Unload any current model and drop page caches before loading.
+            # On Jetson (unified memory), this prevents OOM from stale allocations.
+            if service.loaded_model:
+                log.info("Unloading current model: %s", service.loaded_model)
+                try:
+                    service.client._request(
+                        "/api/generate",
+                        {"model": service.loaded_model, "keep_alive": 0},
+                    )
+                except Exception:
+                    pass
+                service.loaded_model = None
+
+            import subprocess
+            try:
+                subprocess.run(
+                    ["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches"],
+                    timeout=10, capture_output=True,
+                )
+                log.info("Page caches dropped")
+            except Exception as exc:
+                log.warning("Could not drop page caches: %s", exc)
+
             start = time.monotonic()
             try:
                 # Warm up the model with a trivial inference.
