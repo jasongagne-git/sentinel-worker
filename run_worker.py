@@ -16,8 +16,7 @@
 
 """Start a SENTINEL worker service on this node.
 
-Expects sibling directories:
-  ../sentinel/          — core SENTINEL framework (public)
+Expects sibling directory:
   ../sentinel-common/   — shared distributed modules (public)
 
 Usage:
@@ -34,10 +33,9 @@ from pathlib import Path
 # ── Resolve sibling repos ───────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
 _PROJECTS = _HERE.parent
-for _sibling in ("sentinel", "sentinel-common"):
-    _path = _PROJECTS / _sibling
-    if _path.is_dir() and str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+_common = _PROJECTS / "sentinel-common"
+if _common.is_dir() and str(_common) not in sys.path:
+    sys.path.insert(0, str(_common))
 
 log = logging.getLogger("sentinel.worker")
 
@@ -112,7 +110,7 @@ def main():
             sys.exit(1)
 
     # ── Pre-flight: Ollama ──────────────────────────────────────────────
-    from sentinel.ollama import OllamaClient
+    from sentinel_common.ollama import OllamaClient
 
     client = OllamaClient(node.ollama_url)
     if not client.is_available():

@@ -319,7 +319,6 @@ clone_repo() {
     fi
 }
 
-clone_repo "sentinel"
 clone_repo "sentinel-common"
 
 # sentinel-worker might already be here if running from inside the repo

@@ -156,7 +156,7 @@ fi
 # ── Step 5: Cloned repositories ──────────────────────────────────────────
 step "Repositories"
 
-REPOS=("sentinel" "sentinel-common" "sentinel-worker")
+REPOS=("sentinel-common" "sentinel-worker")
 REPOS_FOUND=()
 for repo in "${REPOS[@]}"; do
     if [ -d "$INSTALL_DIR/$repo/.git" ]; then

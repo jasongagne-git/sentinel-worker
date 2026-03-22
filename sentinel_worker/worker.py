@@ -28,8 +28,8 @@ from typing import Optional
 
 from sentinel_common.auth import MAX_BODY_SIZE, sign_request, verify_request, validate_input
 from sentinel_common.cluster import NodeConfig, WorkerCapabilities
-from sentinel.ollama import OllamaClient
-from sentinel.thermal import ThermalGuard
+from sentinel_common.ollama import OllamaClient
+from sentinel_common.thermal import ThermalGuard
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class WorkerService:
 
     def get_capabilities(self) -> WorkerCapabilities:
         """Collect current hardware capabilities and model inventory."""
-        from sentinel.models import get_system_specs
+        from sentinel_common.models import get_system_specs
 
         specs = get_system_specs()
 
