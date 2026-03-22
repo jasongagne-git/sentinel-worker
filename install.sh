@@ -488,12 +488,14 @@ except Exception as e:
             fi
             ;;
         *)
-            ask "Shared cluster secret:"
-            # Try silent read; fall back to visible input if terminal doesn't support it
-            if read -rs CLUSTER_SECRET 2>/dev/null; then
+            ask "Shared cluster secret (input will be hidden):"
+            # Try silent read; fall back to visible input if it fails or captures nothing
+            if read -rs CLUSTER_SECRET 2>/dev/null && [ -n "$CLUSTER_SECRET" ]; then
                 echo ""
             else
-                warn "Silent input not supported on this terminal — input will be visible"
+                echo ""
+                warn "Hidden input didn't capture the paste — retrying with visible input"
+                ask "Shared cluster secret (will be visible):"
                 read -r CLUSTER_SECRET
             fi
 
