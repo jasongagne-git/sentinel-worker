@@ -371,8 +371,26 @@ NODE_ID="${NODE_ID:-$DEFAULT_NODE_ID}"
 # Get coordinator address
 COORDINATOR_ADDR="${SENTINEL_COORDINATOR:-}"
 if [ -z "$COORDINATOR_ADDR" ]; then
-    ask "Coordinator address (IP or hostname.local, e.g., mayhem0.local):"
-    read -r COORDINATOR_ADDR
+    # Auto-detect: if coordinator repo exists locally, read its address from cluster.json
+    COORD_CONFIG="$INSTALL_DIR/sentinel-coordinator/cluster.json"
+    DEFAULT_COORD=""
+    if [ -f "$COORD_CONFIG" ]; then
+        DEFAULT_COORD=$(python3 -c "
+import json
+with open('$COORD_CONFIG') as f:
+    c = json.load(f)
+print(c.get('coordinator', {}).get('host', ''))
+" 2>/dev/null)
+    fi
+
+    if [ -n "$DEFAULT_COORD" ]; then
+        ask "Coordinator address [$DEFAULT_COORD]:"
+        read -r COORDINATOR_ADDR
+        COORDINATOR_ADDR="${COORDINATOR_ADDR:-$DEFAULT_COORD}"
+    else
+        ask "Coordinator address (IP or hostname.local, e.g., mayhem0.local):"
+        read -r COORDINATOR_ADDR
+    fi
 fi
 
 if [ -z "$COORDINATOR_ADDR" ]; then
