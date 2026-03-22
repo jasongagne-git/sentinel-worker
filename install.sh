@@ -14,6 +14,7 @@
 # Environment variables (optional):
 #   SENTINEL_INSTALL_DIR  — parent directory for repos (default: ~/Projects)
 #   SENTINEL_SECRET       — shared cluster secret (will prompt if not set)
+#   SENTINEL_INVITE       — invite token from coordinator (alternative to SECRET)
 #   SENTINEL_COORDINATOR  — coordinator address (will prompt if not set)
 
 set -euo pipefail
@@ -363,14 +364,14 @@ WORKER_ADDR="${WORKER_ADDR:-$DEFAULT_ADDR}"
 
 # Get node ID
 DEFAULT_NODE_ID="$HOSTNAME"
-ask "Node ID for this worker [$DEFAULT_NODE_ID]:"
+ask "What should we call this machine? [$DEFAULT_NODE_ID]:"
 read -r NODE_ID
 NODE_ID="${NODE_ID:-$DEFAULT_NODE_ID}"
 
 # Get coordinator address
 COORDINATOR_ADDR="${SENTINEL_COORDINATOR:-}"
 if [ -z "$COORDINATOR_ADDR" ]; then
-    ask "Coordinator address (IP or hostname.local):"
+    ask "Coordinator address (IP or hostname.local, e.g., mayhem0.local):"
     read -r COORDINATOR_ADDR
 fi
 
@@ -383,17 +384,144 @@ fi
 step "Security"
 
 CLUSTER_SECRET="${SENTINEL_SECRET:-}"
+INVITE_TOKEN="${SENTINEL_INVITE:-}"
+
+if [ -z "$CLUSTER_SECRET" ] && [ -n "$INVITE_TOKEN" ] && [ -n "$COORDINATOR_ADDR" ]; then
+    # ── Invite token enrollment ──
+    info "Enrolling with coordinator via invite token..."
+    ENROLL_RESULT=$(python3 -c "
+import json, urllib.request, sys
+
+body = json.dumps({
+    'invite_token': '$INVITE_TOKEN',
+    'node_id': '$NODE_ID',
+}).encode()
+
+req = urllib.request.Request(
+    'http://$COORDINATOR_ADDR:9400/v1/enroll',
+    data=body, method='POST',
+    headers={'Content-Type': 'application/json'},
+)
+try:
+    resp = urllib.request.urlopen(req, timeout=15)
+    data = json.loads(resp.read().decode())
+    print(data.get('shared_secret', ''))
+except urllib.error.HTTPError as e:
+    body = e.read().decode() if e.fp else ''
+    try:
+        msg = json.loads(body).get('error', str(e))
+    except Exception:
+        msg = str(e)
+    print(f'ERROR:{msg}', file=sys.stderr)
+except Exception as e:
+    print(f'ERROR:{e}', file=sys.stderr)
+" 2>/tmp/sentinel_enroll_err)
+
+    if [ -n "$ENROLL_RESULT" ]; then
+        CLUSTER_SECRET="$ENROLL_RESULT"
+        ok "Enrolled via invite token — secret received"
+    else
+        ENROLL_ERR=$(cat /tmp/sentinel_enroll_err 2>/dev/null | head -1)
+        fail "Enrollment failed: ${ENROLL_ERR:-unknown error}"
+        info "Falling back to manual secret entry..."
+    fi
+    rm -f /tmp/sentinel_enroll_err
+fi
+
 if [ -z "$CLUSTER_SECRET" ]; then
-    ask "Shared cluster secret (get this from the coordinator admin):"
-    read -rs CLUSTER_SECRET
     echo ""
+    echo "  How would you like to provide the shared cluster secret?"
+    echo ""
+    echo "    1) Paste it here (from coordinator admin)"
+    echo "    2) Use an invite token (from coordinator admin)"
+    echo "    3) Read from file: SENTINEL_SECRET=\$(cat /path/to/secret) ./install.sh"
+    echo ""
+    ask "Choice [1/2/3]:"
+    read -r SECRET_METHOD
+
+    case "${SECRET_METHOD:-1}" in
+        2)
+            ask "Invite token:"
+            read -r INVITE_TOKEN
+            ask "Coordinator address (IP or hostname.local):"
+            read -r ENROLL_ADDR
+            ENROLL_ADDR="${ENROLL_ADDR:-$COORDINATOR_ADDR}"
+
+            if [ -n "$INVITE_TOKEN" ] && [ -n "$ENROLL_ADDR" ]; then
+                info "Enrolling with coordinator..."
+                ENROLL_RESULT=$(python3 -c "
+import json, urllib.request, sys
+
+body = json.dumps({
+    'invite_token': '$INVITE_TOKEN',
+    'node_id': '${NODE_ID:-$(hostname)}',
+}).encode()
+
+req = urllib.request.Request(
+    'http://$ENROLL_ADDR:9400/v1/enroll',
+    data=body, method='POST',
+    headers={'Content-Type': 'application/json'},
+)
+try:
+    resp = urllib.request.urlopen(req, timeout=15)
+    data = json.loads(resp.read().decode())
+    print(data.get('shared_secret', ''))
+except urllib.error.HTTPError as e:
+    body = e.read().decode() if e.fp else ''
+    try:
+        msg = json.loads(body).get('error', str(e))
+    except Exception:
+        msg = str(e)
+    print(f'ERROR:{msg}', file=sys.stderr)
+except Exception as e:
+    print(f'ERROR:{e}', file=sys.stderr)
+" 2>/tmp/sentinel_enroll_err)
+
+                if [ -n "$ENROLL_RESULT" ]; then
+                    CLUSTER_SECRET="$ENROLL_RESULT"
+                    ok "Enrolled via invite token — secret received"
+                else
+                    ENROLL_ERR=$(cat /tmp/sentinel_enroll_err 2>/dev/null | head -1)
+                    fail "Enrollment failed: ${ENROLL_ERR:-unknown error}"
+                fi
+                rm -f /tmp/sentinel_enroll_err
+            fi
+            ;;
+        *)
+            ask "Shared cluster secret:"
+            # Try silent read; fall back to visible input if terminal doesn't support it
+            if read -rs CLUSTER_SECRET 2>/dev/null; then
+                echo ""
+            else
+                warn "Silent input not supported on this terminal — input will be visible"
+                read -r CLUSTER_SECRET
+            fi
+
+            # Detect corrupted input: repeated patterns from read -rs paste bugs
+            if [ -n "$CLUSTER_SECRET" ] && [ ${#CLUSTER_SECRET} -ge 32 ]; then
+                HALF_LEN=$(( ${#CLUSTER_SECRET} / 2 ))
+                FIRST_HALF="${CLUSTER_SECRET:0:$HALF_LEN}"
+                SECOND_HALF="${CLUSTER_SECRET:$HALF_LEN:$HALF_LEN}"
+                if [ "$FIRST_HALF" = "$SECOND_HALF" ]; then
+                    warn "Secret looks duplicated (paste bug detected) — using first half"
+                    CLUSTER_SECRET="$FIRST_HALF"
+                fi
+            fi
+
+            # Strip whitespace/control characters
+            CLUSTER_SECRET=$(echo "$CLUSTER_SECRET" | tr -d '[:cntrl:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            ;;
+    esac
 fi
 
 if [ -z "$CLUSTER_SECRET" ]; then
     fail "Shared secret is required"
     ERRORS=$((ERRORS + 1))
 elif [ ${#CLUSTER_SECRET} -lt 16 ]; then
-    fail "Shared secret must be at least 16 characters"
+    fail "Shared secret must be at least 16 characters (got ${#CLUSTER_SECRET})"
+    ERRORS=$((ERRORS + 1))
+elif [ ${#CLUSTER_SECRET} -gt 128 ]; then
+    fail "Shared secret suspiciously long (${#CLUSTER_SECRET} chars) — possible paste corruption"
     ERRORS=$((ERRORS + 1))
 else
     ok "Shared secret set (${#CLUSTER_SECRET} chars)"
@@ -408,7 +536,7 @@ CONFIG_FILE="$CONFIG_DIR/cluster.json"
 if [ $ERRORS -eq 0 ]; then
     # Write secret to env file
     ENV_FILE="$CONFIG_DIR/.env"
-    echo "SENTINEL_CLUSTER_SECRET=$CLUSTER_SECRET" > "$ENV_FILE"
+    echo "export SENTINEL_CLUSTER_SECRET=$CLUSTER_SECRET" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     ok "Secret written to $ENV_FILE (mode 600)"
 
@@ -477,15 +605,29 @@ fi
 
 ok "Installation complete!"
 echo ""
-info "To start the worker:"
+echo -e "${BOLD}Here's what was set up:${NC}"
 echo ""
-echo "  cd $INSTALL_DIR/sentinel-worker"
-echo "  source .env"
-echo "  python3 run_worker.py --config cluster.json --node-id $NODE_ID"
+echo "  Machine name:  $NODE_ID"
+echo "  Address:       $WORKER_ADDR"
+echo "  Coordinator:   $COORDINATOR_ADDR"
+echo "  Config:        $CONFIG_FILE"
+echo "  Secret:        $ENV_FILE (mode 600)"
 echo ""
-info "To start at boot (systemd):"
+echo -e "${BOLD}What to do next:${NC}"
 echo ""
-echo "  sudo cp sentinel-worker.service /etc/systemd/system/"
-echo "  sudo systemctl enable sentinel-worker"
-echo "  sudo systemctl start sentinel-worker"
+echo "  Start the worker:"
+echo "    cd $INSTALL_DIR/sentinel-worker"
+echo "    source .env"
+echo "    python3 run_worker.py --config cluster.json --node-id $NODE_ID"
+echo ""
+echo "  To start at boot (systemd):"
+echo "    sudo cp sentinel-worker.service /etc/systemd/system/"
+echo "    sudo systemctl enable sentinel-worker"
+echo "    sudo systemctl start sentinel-worker"
+echo ""
+echo "  Make sure the coordinator knows about this worker:"
+echo "    On the coordinator machine: ./add_worker.sh --id $NODE_ID --host $WORKER_ADDR"
+echo ""
+echo "  To uninstall:"
+echo "    cd $INSTALL_DIR/sentinel-worker && ./uninstall.sh"
 echo ""
