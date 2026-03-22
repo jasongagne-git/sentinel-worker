@@ -132,7 +132,10 @@ class WorkerService:
         self.total_inferences: int = 0
         self.total_probes: int = 0
         self._active_inference: bool = False
+        self._active_agent: Optional[str] = None
         self._server: Optional[http.server.HTTPServer] = None
+        self._agent_stats: dict[str, dict] = {}  # agent_id -> stats
+        self._experiment_id: Optional[str] = None
 
     def get_capabilities(self) -> WorkerCapabilities:
         """Collect current hardware capabilities and model inventory."""
@@ -290,6 +293,8 @@ def _make_handler(service: WorkerService):
                 self._handle_health()
             elif path == "/v1/status":
                 self._handle_status()
+            elif path == "/v1/dashboard":
+                self._handle_dashboard()
             else:
                 self._send_error(404, f"unknown endpoint: {path}")
 
@@ -343,6 +348,8 @@ def _make_handler(service: WorkerService):
             response_limit = agent_config.get("response_limit", 256)
 
             service._active_inference = True
+            agent_name = agent_config.get("name", agent_id[:8])
+            service._active_agent = agent_name
             try:
                 result = service.client.chat(
                     model=model,
@@ -352,16 +359,29 @@ def _make_handler(service: WorkerService):
                 )
             except Exception as exc:
                 service._active_inference = False
+                service._active_agent = None
                 log.error("Inference failed: %s", exc)
                 self._send_error(503, f"ollama error: {exc}")
                 return
             finally:
                 service._active_inference = False
+                service._active_agent = None
 
-            if is_probe:
-                service.total_probes += 1
-            else:
+            # Track per-agent stats
+            experiment_id = data.get("experiment_id", "")
+            if experiment_id:
+                service._experiment_id = experiment_id
+            if not is_probe:
                 service.total_inferences += 1
+                stats = service._agent_stats.setdefault(agent_id, {
+                    "name": agent_name, "inferences": 0,
+                    "total_ms": 0, "last_turn": 0,
+                })
+                stats["inferences"] += 1
+                stats["total_ms"] += result.get("inference_ms", 0)
+                stats["last_turn"] = data.get("turn", 0)
+            else:
+                service.total_probes += 1
 
             # Get model digest
             model_digest = service.client.get_model_digest(model)
@@ -480,8 +500,40 @@ def _make_handler(service: WorkerService):
                 "loaded_model": service.loaded_model,
                 "thermal_temp_c": thermal.get("current_temp_c"),
                 "active_inference": service._active_inference,
+                "active_agent": service._active_agent,
                 "total_inferences": service.total_inferences,
                 "total_probes": service.total_probes,
+            })
+
+        # ── GET /v1/dashboard ────────────────────────────────────────────
+
+        def _handle_dashboard(self):
+            thermal = service.thermal.to_dict()
+            uptime = int(time.monotonic() - service.start_time)
+
+            agents = []
+            for aid, stats in service._agent_stats.items():
+                avg_ms = stats["total_ms"] / stats["inferences"] if stats["inferences"] > 0 else 0
+                agents.append({
+                    "agent_id": aid[:8],
+                    "name": stats["name"],
+                    "inferences": stats["inferences"],
+                    "avg_ms": round(avg_ms),
+                    "last_turn": stats["last_turn"],
+                })
+
+            self._send_json(200, {
+                "node_id": service.node_config.node_id,
+                "status": "healthy",
+                "uptime_s": uptime,
+                "loaded_model": service.loaded_model,
+                "thermal": thermal,
+                "active_inference": service._active_inference,
+                "active_agent": service._active_agent,
+                "experiment_id": service._experiment_id,
+                "total_inferences": service.total_inferences,
+                "total_probes": service.total_probes,
+                "agents": agents,
             })
 
     return WorkerRequestHandler
