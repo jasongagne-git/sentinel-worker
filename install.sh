@@ -488,16 +488,8 @@ except Exception as e:
             fi
             ;;
         *)
-            ask "Shared cluster secret (input will be hidden):"
-            # Try silent read; fall back to visible input if it fails or captures nothing
-            if read -rs CLUSTER_SECRET 2>/dev/null && [ -n "$CLUSTER_SECRET" ]; then
-                echo ""
-            else
-                echo ""
-                warn "Hidden input didn't capture the paste — retrying with visible input"
-                ask "Shared cluster secret (will be visible):"
-                read -r CLUSTER_SECRET
-            fi
+            ask "Shared cluster secret:"
+            read -r CLUSTER_SECRET
 
             # Detect corrupted input: repeated patterns from read -rs paste bugs
             if [ -n "$CLUSTER_SECRET" ] && [ ${#CLUSTER_SECRET} -ge 32 ]; then
