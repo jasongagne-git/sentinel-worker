@@ -55,7 +55,7 @@ _AGENT_CONFIG_SCHEMA = {
         "model": {"type": "string", "maxLength": 256},
         "temperature": {"type": "number", "minimum": 0.0, "maximum": 2.0},
         "max_history": {"type": "integer", "minimum": 1, "maximum": 1000},
-        "response_limit": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "response_limit": {"type": "integer", "minimum": -1, "maximum": 4096},
     },
 }
 
