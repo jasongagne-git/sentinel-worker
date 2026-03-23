@@ -116,11 +116,26 @@ def render(data: dict):
     print(" SENTINEL Worker Monitor")
     print("=" * 60)
     print()
+    max_turns = data.get("max_turns")
+    current_turn = max((a.get("last_turn", 0) for a in agents), default=0) if agents else 0
+    if max_turns:
+        turn_str = f"{current_turn}/{max_turns}"
+        pct = 100 * current_turn // max_turns if max_turns > 0 else 0
+        bar_w = 30
+        filled = bar_w * current_turn // max_turns if max_turns > 0 else 0
+        progress_bar = f"[{'#' * filled}{'-' * (bar_w - filled)}] {pct}%"
+    else:
+        turn_str = str(current_turn)
+        progress_bar = ""
+
     print(f"  Node:       {node_id}")
     print(f"  Status:     {status.upper()}")
     print(f"  Uptime:     {uptime}")
     print(f"  Model:      {model}")
     print(f"  Experiment: {experiment_id[:8] if experiment_id != '--' else '--'}")
+    print(f"  Turn:       {turn_str}")
+    if progress_bar:
+        print(f"  Progress:   {progress_bar}")
     print()
     print(f"  Temperature:  {temp_str}  (max: {max_temp:.1f}C, pauses: {pause_count})")
     print(f"  Inferences:   {total_inf}  (probes: {total_probes})")

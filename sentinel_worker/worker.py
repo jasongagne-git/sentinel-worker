@@ -136,6 +136,7 @@ class WorkerService:
         self._server: Optional[http.server.HTTPServer] = None
         self._agent_stats: dict[str, dict] = {}  # agent_id -> stats
         self._experiment_id: Optional[str] = None
+        self._max_turns: Optional[int] = None
 
     def get_capabilities(self) -> WorkerCapabilities:
         """Collect current hardware capabilities and model inventory."""
@@ -371,6 +372,8 @@ def _make_handler(service: WorkerService):
             experiment_id = data.get("experiment_id", "")
             if experiment_id:
                 service._experiment_id = experiment_id
+            if "max_turns" in data:
+                service._max_turns = data["max_turns"]
             if not is_probe:
                 service.total_inferences += 1
                 stats = service._agent_stats.setdefault(agent_id, {
@@ -531,6 +534,7 @@ def _make_handler(service: WorkerService):
                 "active_inference": service._active_inference,
                 "active_agent": service._active_agent,
                 "experiment_id": service._experiment_id,
+                "max_turns": service._max_turns,
                 "total_inferences": service.total_inferences,
                 "total_probes": service.total_probes,
                 "agents": agents,
