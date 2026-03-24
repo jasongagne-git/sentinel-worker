@@ -104,6 +104,13 @@ def _build_prompt(
                 "Please introduce yourself and share your perspective."
             ),
         })
+    elif messages[-1]["role"] == "assistant":
+        # Prompt ends with this agent's own message — the model will return
+        # empty since it thinks it already spoke. Add a continuation nudge.
+        messages.append({
+            "role": "user",
+            "content": "The discussion continues. Please share your thoughts on what has been said.",
+        })
 
     return messages
 
