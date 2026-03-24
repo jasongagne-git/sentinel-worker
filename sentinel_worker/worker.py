@@ -370,8 +370,13 @@ def _make_handler(service: WorkerService):
 
             # Track per-agent stats
             experiment_id = data.get("experiment_id", "")
-            if experiment_id:
+            if experiment_id and experiment_id != service._experiment_id:
+                # New experiment — reset stats
                 service._experiment_id = experiment_id
+                service._agent_stats.clear()
+                service.total_inferences = 0
+                service.total_probes = 0
+                service._max_turns = None
             if "max_turns" in data:
                 service._max_turns = data["max_turns"]
             if not is_probe:
