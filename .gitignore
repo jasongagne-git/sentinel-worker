@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+._*
+nohup.out
+
+# Secrets
+.env
+
+# Machine-specific cluster config
+cluster.json

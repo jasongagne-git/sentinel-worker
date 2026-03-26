@@ -250,11 +250,14 @@ def _make_handler(service: WorkerService):
 
         def _send_json(self, status: int, data: dict):
             payload = json.dumps(data).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            except BrokenPipeError:
+                pass  # Client disconnected before response — harmless
 
         def _send_error(self, status: int, message: str, details=None):
             data = {"error": message}
